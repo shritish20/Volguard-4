@@ -139,7 +139,17 @@ async def get_upstox_user_details(access_token: str):
         order_api = upstox_client.OrderApi(api_client)
 
         profile_data = user_api.get_profile(api_version="v2").to_dict().get('data', {})
-        funds_data = user_api.get_user_fund_margin(api_version="v2").to_dict().get('data', {})
+        
+        # Funds: gracefully handle downtime
+        try:
+            funds_data = user_api.get_user_fund_margin(api_version="v2").to_dict().get('data', {})
+        except ApiException as e:
+            if "UDAPI100072" in e.body:
+                logger.warning("Funds API not available during this time window.")
+                funds_data = {"note": "Funds service unavailable between 12:00 AM and 5:30 AM IST."}
+            else:
+                raise
+
         holdings_data = portfolio_api.get_holdings(api_version="v2").to_dict().get('data', [])
         positions_data = portfolio_api.get_positions(api_version="v2").to_dict().get('data', [])
         all_orders_data = order_api.get_order_book(api_version="v2").to_dict().get('data', [])
