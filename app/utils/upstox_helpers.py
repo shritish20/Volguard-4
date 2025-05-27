@@ -138,12 +138,12 @@ async def get_upstox_user_details(access_token: str):
         portfolio_api = upstox_client.PortfolioApi(api_client)
         order_api = upstox_client.OrderApi(api_client)
 
-        profile_data = user_api.get_profile().to_dict().get('data', {})
-        funds_data = user_api.get_funds_and_margin().to_dict().get('data', {})
-        holdings_data = portfolio_api.get_holdings().to_dict().get('data', [])
-        positions_data = portfolio_api.get_positions().to_dict().get('data', [])
-        all_orders_data = order_api.get_order_book().to_dict().get('data', [])
-        trades_for_day_data = order_api.get_trade_book().to_dict().get('data', [])
+        profile_data = user_api.get_profile(api_version="v2").to_dict().get('data', {})
+        funds_data = user_api.get_user_fund_margin(api_version="v2").to_dict().get('data', {})
+        holdings_data = portfolio_api.get_holdings(api_version="v2").to_dict().get('data', [])
+        positions_data = portfolio_api.get_positions(api_version="v2").to_dict().get('data', [])
+        all_orders_data = order_api.get_order_book(api_version="v2").to_dict().get('data', [])
+        trades_for_day_data = order_api.get_trade_book(api_version="v2").to_dict().get('data', [])
 
         return {
             "profile": profile_data,
