@@ -7,7 +7,6 @@ import pythonjsonlogger.jsonlogger
 load_dotenv()
 
 class Settings:
-    NGROK_AUTH_TOKEN: str = os.getenv("NGROK_AUTH_TOKEN", "")
     UPSTOX_ACCESS_TOKEN: str = os.getenv("UPSTOX_ACCESS_TOKEN", "")
     UPSTOX_BASE_URL: str = "https://api.upstox.com/v2"
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./trades.db")
