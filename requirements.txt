@@ -8,4 +8,3 @@ python-dotenv==1.0.1
 arch==7.0.0
 sqlalchemy==2.0.31
 pydantic==2.9.2
-pythonjsonlogger==2.0.7
