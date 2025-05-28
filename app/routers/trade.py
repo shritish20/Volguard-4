@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from app.config import logger
 from app.models import OrderLeg, TradePnlRequest, UserDetailsInput, WebSocketRequest
 from app.utils.upstox_helpers import place_order_for_leg, fetch_trade_pnl, get_funds_and_margin, get_upstox_config
-from upstox_client import WebsocketClient
+from upstox_client import WebSocket  # Updated WebSocket import
 
 router = APIRouter()
 
@@ -46,9 +46,8 @@ async def websocket_market_data(websocket: WebSocket):
         data = await websocket.receive_json()
         request = WebSocketRequest(**data)
         config = get_upstox_config(request.access_token)
-        ws_client = WebsocketClient(config)
-        ws_client.mode(request.mode)
-        ws_client.subscribe_market_data(request.instrument_keys)
+        ws_client = WebSocket(config)
+        ws_client.subscribe(request.instrument_keys, request.mode)
         def on_message(message):
             try:
                 websocket.send_json({"type": "market_data", "data": message})
@@ -59,8 +58,8 @@ async def websocket_market_data(websocket: WebSocket):
                 websocket.send_json({"type": "error", "data": str(error)})
             except Exception as e:
                 logger.error(f"WebSocket error: {e}")
-        ws_client.on_message = on_message
-        ws_client.on_error = on_error
+        ws_client.on("message", on_message)
+        ws_client.on("error", on_error)
         ws_client.connect()
         while True:
             await websocket.receive_text()
@@ -77,8 +76,8 @@ async def websocket_portfolio_data(websocket: WebSocket):
         data = await websocket.receive_json()
         request = UserDetailsInput(**data)
         config = get_upstox_config(request.access_token)
-        ws_client = WebsocketClient(config)
-        ws_client.subscribe_portfolio_data(order_update=True, position_update=True)
+        ws_client = WebSocket(config)
+        ws_client.subscribe(order_update=True, position_update=True)
         def on_message(message):
             try:
                 websocket.send_json({"type": "portfolio_data", "data": message})
@@ -89,13 +88,13 @@ async def websocket_portfolio_data(websocket: WebSocket):
                 websocket.send_json({"type": "error", "data": str(error)})
             except Exception as e:
                 logger.error(f"WebSocket error: {e}")
-        ws_client.on_message = on_message
-        ws_client.on_error = on_error
+        ws_client.on("message", on_message)
+        ws_client.on("error", on_error)
         ws_client.connect()
         while True:
             await websocket.receive_text()
     except Exception as e:
-        logger.error(f"WebSocket portfolio error: {e}")
+        logger.error(f"WebSocket portfolio error: {str(e)}")
         await websocket.close()
     finally:
         ws_client.disconnect()
