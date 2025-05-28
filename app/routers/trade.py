@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, WebSocket
 from app.config import logger
 from app.models import OrderLeg, TradePnlRequest, UserDetailsInput, WebSocketRequest
 from app.utils.upstox_helpers import place_order_for_leg, fetch_trade_pnl, get_funds_and_margin, get_upstox_config
-from upstox_client import WebSocket  # Updated WebSocket import
 
 router = APIRouter()
 
@@ -38,63 +37,3 @@ async def get_funds_margin(token: UserDetailsInput):
     except Exception as e:
         logger.error(f"Funds and margin endpoint error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.websocket("/market-data")
-async def websocket_market_data(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        data = await websocket.receive_json()
-        request = WebSocketRequest(**data)
-        config = get_upstox_config(request.access_token)
-        ws_client = WebSocket(config)
-        ws_client.subscribe(request.instrument_keys, request.mode)
-        def on_message(message):
-            try:
-                websocket.send_json({"type": "market_data", "data": message})
-            except Exception as e:
-                logger.error(f"WebSocket send error: {e}")
-        def on_error(error):
-            try:
-                websocket.send_json({"type": "error", "data": str(error)})
-            except Exception as e:
-                logger.error(f"WebSocket error: {e}")
-        ws_client.on("message", on_message)
-        ws_client.on("error", on_error)
-        ws_client.connect()
-        while True:
-            await websocket.receive_text()
-    except Exception as e:
-        logger.error(f"WebSocket market data error: {e}")
-        await websocket.close()
-    finally:
-        ws_client.disconnect()
-
-@router.websocket("/portfolio-data")
-async def websocket_portfolio_data(websocket: WebSocket):
-    await websocket.accept()
-    try:
-        data = await websocket.receive_json()
-        request = UserDetailsInput(**data)
-        config = get_upstox_config(request.access_token)
-        ws_client = WebSocket(config)
-        ws_client.subscribe(order_update=True, position_update=True)
-        def on_message(message):
-            try:
-                websocket.send_json({"type": "portfolio_data", "data": message})
-            except Exception as e:
-                logger.error(f"WebSocket send error: {e}")
-        def on_error(error):
-            try:
-                websocket.send_json({"type": "error", "data": str(error)})
-            except Exception as e:
-                logger.error(f"WebSocket error: {e}")
-        ws_client.on("message", on_message)
-        ws_client.on("error", on_error)
-        ws_client.connect()
-        while True:
-            await websocket.receive_text()
-    except Exception as e:
-        logger.error(f"WebSocket portfolio error: {str(e)}")
-        await websocket.close()
-    finally:
-        ws_client.disconnect()
