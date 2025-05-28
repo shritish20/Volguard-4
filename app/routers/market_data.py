@@ -14,20 +14,20 @@ router = APIRouter()
 async def get_option_chain_endpoint(data: OptionChainInput):
     config = get_upstox_config(data.access_token)
     api_client = upstox_client.ApiClient(config)
-    options_api = upstox_client.OptionsApi(api_client)
+    option_chain_api = upstox_client.OptionChainApi(api_client)
 
     try:
-        expiry = await fetch_expiry(options_api, data.instrument_key)
+        expiry = await fetch_expiry(option_chain_api, data.instrument_key)
         if not expiry:
             logger.error("Failed to retrieve nearest expiry date.")
             raise HTTPException(status_code=500, detail="Failed to retrieve nearest expiry date.")
 
-        chain = await fetch_option_chain_raw(options_api, data.instrument_key, expiry)
+        chain = await fetch_option_chain_raw(option_chain_api, data.instrument_key, expiry)
         if not chain:
             logger.error("Failed to retrieve option chain data.")
             raise HTTPException(status_code=500, detail="Failed to retrieve option chain data.")
 
-        spot = chain[0].get("underlying_spot_price")
+        spot = chain[0].get("underlying_spot_price") if chain else None
         if not spot:
             logger.error("Failed to retrieve spot price from option chain.")
             raise HTTPException(status_code=500, detail="Failed to retrieve spot price.")
