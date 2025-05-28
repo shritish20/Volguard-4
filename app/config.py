@@ -2,7 +2,7 @@ import os
 from dotenv import load_dotenv
 import logging
 from logging.handlers import RotatingFileHandler
-import pythonjsonlogger.jsonlogger
+from python_json_logger import jsonlogger  # Updated import
 
 load_dotenv()
 
@@ -18,7 +18,7 @@ settings = Settings()
 logger = logging.getLogger("VolGuardPro")
 logger.setLevel(logging.DEBUG)
 
-formatter = pythonjsonlogger.jsonlogger.JsonFormatter(
+formatter = jsonlogger.JsonFormatter(
     '%(asctime)s %(name)s %(levelname)s %(message)s'
 )
 
