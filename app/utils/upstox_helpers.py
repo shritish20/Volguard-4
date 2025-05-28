@@ -1,12 +1,10 @@
-import upstox_client
-from upstox_client import Configuration, ApiClient, OptionChainApi, OrderApi, MarketQuoteApi, UserApi, PortfolioApi  # Direct imports
-from upstox_client.rest import ApiException
-import pandas as pd
-from datetime import datetime
-import retrying
-from app.config import settings, logger
-from fastapi import HTTPException
+import requests
 import json
+from datetime import datetime
+import pandas as pd
+from fastapi import HTTPException
+from retrying import retry
+from app.config import settings, logger
 from typing import Optional, Dict
 
 def structured_log(level: str, message: str, extra: dict = None):
@@ -22,19 +20,25 @@ def structured_log(level: str, message: str, extra: dict = None):
         else logger.info(json.dumps(log_data))
     )
 
-def get_upstox_config(access_token: str) -> Configuration:
-    configuration = Configuration()
-    configuration.access_token = access_token
-    configuration.base_path = settings.UPSTOX_BASE_URL
+def get_upstox_config(access_token: str) -> dict:
+    headers = {
+        'Authorization': f'Bearer {access_token}',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+    base_url = settings.UPSTOX_BASE_URL  # Assumed as https://api.upstox.com
     structured_log("INFO", "Upstox configuration created", {"access_token": access_token[:4] + "..."})
-    return configuration
+    return {"base_url": base_url, "headers": headers}
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
-async def fetch_expiry(option_chain_api: OptionChainApi, instrument_key: str) -> Optional[str]:
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
+async def fetch_expiry(config: dict, instrument_key: str) -> Optional[str]:
     structured_log("DEBUG", "Fetching expiry", {"instrument_key": instrument_key})
     try:
-        response = option_chain_api.get_option_contracts(instrument_key=instrument_key, api_version="2.0")
-        contracts = response.get("data", [])
+        url = f"{config['base_url']}/v2/option/contract"
+        params = {'instrument_key': instrument_key}
+        response = requests.get(url, headers=config['headers'], params=params)
+        response.raise_for_status()
+        contracts = response.json().get("data", [])
         expiry_dates = set()
         for contract in contracts:
             expiry = contract.get("expiry")
@@ -49,29 +53,32 @@ async def fetch_expiry(option_chain_api: OptionChainApi, instrument_key: str) ->
             return valid_expiries[0]
         structured_log("ERROR", "No valid expiry dates found", {"instrument_key": instrument_key})
         return None
-    except ApiException as e:
-        structured_log("ERROR", f"Failed to fetch expiry: {e.body}", {"instrument_key": instrument_key, "status": e.status})
-        raise HTTPException(status_code=e.status, detail=e.body)
+    except requests.exceptions.RequestException as e:
+        structured_log("ERROR", f"Failed to fetch expiry: {str(e)}", {"instrument_key": instrument_key})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"Error fetching expiry: {str(e)}", {"instrument_key": instrument_key})
         raise HTTPException(status_code=500, detail=str(e))
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
-async def fetch_option_chain_raw(option_chain_api: OptionChainApi, instrument_key: str, expiry_date: str) -> list:
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
+async def fetch_option_chain_raw(config: dict, instrument_key: str, expiry_date: str) -> list:
     structured_log("DEBUG", "Fetching option chain", {"instrument_key": instrument_key, "expiry_date": expiry_date})
     try:
-        response = option_chain_api.get_option_chain(instrument_key=instrument_key, expiry_date=expiry_date, api_version="2.0")
-        data = response.get('data', [])
+        url = f"{config['base_url']}/v2/option/chain"
+        params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
+        response = requests.get(url, headers=config['headers'], params=params)
+        response.raise_for_status()
+        data = response.json().get('data', [])
         structured_log("INFO", "Option chain fetched successfully", {"instrument_key": instrument_key, "records": len(data)})
         return data
-    except ApiException as e:
-        structured_log("ERROR", f"Failed to fetch option chain: {e.body}", {"instrument_key": instrument_key, "expiry_date": expiry_date, "status": e.status})
-        raise HTTPException(status_code=500, detail=e.body)
+    except requests.exceptions.RequestException as e:
+        structured_log("ERROR", f"Failed to fetch option chain: {str(e)}", {"instrument_key": instrument_key, "expiry_date": expiry_date})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"Error fetching option chain: {str(e)}", {"instrument_key": instrument_key, "expiry_date": expiry_date})
         raise HTTPException(status_code=500, detail=str(e))
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def place_order_for_leg(access_token: str, leg: dict) -> dict:
     structured_log("DEBUG", "Placing order", {"instrument_key": leg.get("instrument_key"), "quantity": leg.get("quantity")})
     try:
@@ -81,8 +88,7 @@ async def place_order_for_leg(access_token: str, leg: dict) -> dict:
             structured_log("ERROR", "Insufficient margin available", {"access_token": access_token[:4] + "..."})
             raise HTTPException(status_code=400, detail="Insufficient margin available")
         config = get_upstox_config(access_token)
-        api_client = ApiClient(config)
-        order_api = OrderApi(api_client)
+        url = f"{config['base_url']}/v2/order/place"
         place_order_request = {
             "instrument_key": leg["instrument_key"],
             "quantity": leg["quantity"],
@@ -96,25 +102,28 @@ async def place_order_for_leg(access_token: str, leg: dict) -> dict:
             "tag": leg.get("tag", "volguard"),
             "is_amo": False
         }
-        response = order_api.place_order(body=place_order_request, api_version="2.0")
-        structured_log("INFO", "Order placed successfully", {"order_id": response.get('data', {}).get('order_id')})
-        return response.get('data', {})
-    except ApiException as e:
-        structured_log("ERROR", f"Order placement failed: {e.body}", {"instrument_key": leg.get("instrument_key"), "status": e.status})
-        raise HTTPException(status_code=e.status, detail=e.body)
+        response = requests.post(url, headers=config['headers'], json=place_order_request)
+        response.raise_for_status()
+        data = response.json().get('data', {})
+        structured_log("INFO", "Order placed successfully", {"order_id": data.get('order_id')})
+        return data
+    except requests.exceptions.RequestException as e:
+        structured_log("ERROR", f"Order placement failed: {str(e)}", {"instrument_key": leg.get("instrument_key")})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"Order placement error: {str(e)}", {"instrument_key": leg.get("instrument_key")})
         raise HTTPException(status_code=500, detail=str(e))
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def fetch_trade_pnl(access_token: str, order_id: str) -> float:
     structured_log("DEBUG", "Fetching trade P&L", {"order_id": order_id})
     try:
         config = get_upstox_config(access_token)
-        api_client = ApiClient(config)
-        order_api = OrderApi(api_client)
-        market_quote_api = MarketQuoteApi(api_client)
-        trades = order_api.get_trade_book(api_version="2.0").get('data', [])
+        # Fetch trade book
+        trade_url = f"{config['base_url']}/v2/trade/trade-book"
+        trade_response = requests.get(trade_url, headers=config['headers'])
+        trade_response.raise_for_status()
+        trades = trade_response.json().get('data', [])
         total_pnl = 0.0
         for trade in trades:
             if trade.get('order_id') != order_id:
@@ -125,44 +134,67 @@ async def fetch_trade_pnl(access_token: str, order_id: str) -> float:
             instrument_key = trade.get('instrument_key', '')
             if not instrument_key:
                 continue
-            ltp_data = market_quote_api.get_full_market_quote(instrument_keys=instrument_key, api_version="2.0")
-            ltp = ltp_data.get('data', {}).get(instrument_key, {}).get('ltp', 0)
+            # Fetch LTP
+            quote_url = f"{config['base_url']}/v2/market-quote/quotes"
+            params = {'instrument_key': instrument_key}
+            quote_response = requests.get(quote_url, headers=config['headers'], params=params)
+            quote_response.raise_for_status()
+            ltp = quote_response.json().get('data', {}).get(instrument_key, {}).get('ltp', 0)
             if transaction_type == 'BUY':
                 total_pnl += (ltp - avg_price) * quantity
             elif transaction_type == 'SELL':
                 total_pnl += (avg_price - ltp) * quantity
         structured_log("INFO", "P&L calculated", {"order_id": order_id, "pnl": total_pnl})
         return total_pnl
-    except ApiException as e:
-        structured_log("ERROR", f"P&L fetch failed: {e.body}", {"order_id": order_id, "status": e.status})
-        raise HTTPException(status_code=e.status, detail=e.body)
+    except requests.exceptions.RequestException as e:
+        structured_log("ERROR", f"P&L fetch failed: {str(e)}", {"order_id": order_id})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"P&L fetch failed: {str(e)}", {"order_id": order_id})
         raise HTTPException(status_code=500, detail=str(e))
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def get_upstox_user_details(access_token: str) -> Dict:
     structured_log("DEBUG", "Fetching user details", {"access_token": access_token[:4] + "..."})
     try:
         config = get_upstox_config(access_token)
-        api_client = ApiClient(config)
-        user_api = UserApi(api_client)
-        portfolio_api = PortfolioApi(api_client)
-        order_api = OrderApi(api_client)
-
-        profile_data = user_api.get_profile(api_version="2.0").get('data', {})
+        # Fetch profile
+        profile_url = f"{config['base_url']}/v2/user/profile"
+        profile_response = requests.get(profile_url, headers=config['headers'])
+        profile_response.raise_for_status()
+        profile_data = profile_response.json().get('data', {})
+        # Fetch funds
+        funds_url = f"{config['base_url']}/v2/user/get-funds-and-margin"
         try:
-            funds_data = user_api.get_user_fund_margin(segment="EQ", api_version="2.0").get('data', {})
-        except ApiException as e:
-            if "UDAPI100072" in str(e.body):
+            funds_response = requests.get(funds_url, headers=config['headers'])
+            funds_response.raise_for_status()
+            funds_data = funds_response.json().get('data', {})
+        except requests.exceptions.RequestException as e:
+            if "UDAPI100072" in str(e):
                 structured_log("WARNING", "Funds API not available during this time window", {"error_code": "UDAPI100072"})
                 funds_data = {"note": "Funds service unavailable between 12:00 AM and 5:30 AM IST."}
             else:
-                raise HTTPException(status_code=e.status, detail=e.body)
-        holdings_data = portfolio_api.get_holdings(api_version="2.0").get('data', [])
-        positions_data = portfolio_api.get_positions(api_version="2.0").get('data', [])
-        all_orders_data = order_api.get_order_book(api_version="2.0").get('data', [])
-        trades_for_day_data = order_api.get_trade_book(api_version="2.0").get('data', [])
+                raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
+        # Fetch holdings
+        holdings_url = f"{config['base_url']}/v2/portfolio/long-term-holdings"
+        holdings_response = requests.get(holdings_url, headers=config['headers'])
+        holdings_response.raise_for_status()
+        holdings_data = holdings_response.json().get('data', [])
+        # Fetch positions
+        positions_url = f"{config['base_url']}/v2/portfolio/short-term-positions"
+        positions_response = requests.get(positions_url, headers=config['headers'])
+        positions_response.raise_for_status()
+        positions_data = positions_response.json().get('data', [])
+        # Fetch orders
+        orders_url = f"{config['base_url']}/v2/order/book"
+        orders_response = requests.get(orders_url, headers=config['headers'])
+        orders_response.raise_for_status()
+        all_orders_data = orders_response.json().get('data', [])
+        # Fetch trades
+        trades_url = f"{config['base_url']}/v2/trade/trade-book"
+        trades_response = requests.get(trades_url, headers=config['headers'])
+        trades_response.raise_for_status()
+        trades_for_day_data = trades_response.json().get('data', [])
 
         details = {
             "profile": profile_data,
@@ -174,29 +206,30 @@ async def get_upstox_user_details(access_token: str) -> Dict:
         }
         structured_log("INFO", "User details fetched successfully", {"profile_email": profile_data.get('email', 'N/A')})
         return details
-    except ApiException as e:
-        structured_log("ERROR", f"User details fetch failed: {e.body}", {"status": e.status})
-        raise HTTPException(status_code=e.status, detail=e.body)
+    except requests.exceptions.RequestException as e:
+        structured_log("ERROR", f"User details fetch failed: {str(e)}", {"status": e.response.status_code if e.response else 500})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"User details fetch failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+@retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def get_funds_and_margin(access_token: str) -> Dict:
     structured_log("DEBUG", "Fetching funds and margin", {"access_token": access_token[:4] + "..."})
     try:
         config = get_upstox_config(access_token)
-        api_client = ApiClient(config)
-        user_api = UserApi(api_client)
-        funds_data = user_api.get_user_fund_margin(segment="EQ", api_version="2.0").get('data', {})
+        funds_url = f"{config['base_url']}/v2/user/get-funds-and-margin"
+        response = requests.get(funds_url, headers=config['headers'])
+        response.raise_for_status()
+        funds_data = response.json().get('data', {})
         structured_log("INFO", "Funds and margin fetched successfully", {"available_margin": funds_data.get('equity', {}).get('available_margin', 0.0)})
         return funds_data
-    except ApiException as e:
-        if "UDAPI100072" in str(e.body):
+    except requests.exceptions.RequestException as e:
+        if "UDAPI100072" in str(e):
             structured_log("WARNING", "Funds API not available during this time window", {"error_code": "UDAPI100072"})
             return {"note": "Funds service unavailable between 12:00 AM and 5:30 AM IST."}
-        structured_log("ERROR", f"Funds fetch failed: {e.body}", {"status": e.status})
-        raise HTTPException(status_code=e.status, detail=e.body)
+        structured_log("ERROR", f"Funds fetch failed: {str(e)}", {"status": e.response.status_code if e.response else 500})
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
     except Exception as e:
         structured_log("ERROR", f"Funds fetch failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
