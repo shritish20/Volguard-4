@@ -16,7 +16,6 @@ class Settings:
 
 settings = Settings()
 
-# Configure logging with rotation and JSON formatter
 logger = logging.getLogger("VolGuardPro")
 logger.setLevel(logging.DEBUG)
 
@@ -24,12 +23,10 @@ formatter = pythonjsonlogger.jsonlogger.JsonFormatter(
     '%(asctime)s %(name)s %(levelname)s %(message)s'
 )
 
-# Console handler
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(formatter)
 logger.addHandler(console_handler)
 
-# File handler with rotation (max 5MB, keep 5 backups)
 file_handler = RotatingFileHandler(
     "volguard_pro.log", maxBytes=5*1024*1024, backupCount=5
 )
