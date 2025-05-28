@@ -1,6 +1,5 @@
 import upstox_client
-from upstox_client import Configuration, ApiClient
-from upstox_client.apis import OptionChainApi, OrderApi, MarketQuoteApi, UserApi, PortfolioApi
+from upstox_client import Configuration, ApiClient, OptionChainApi, OrderApi, MarketQuoteApi, UserApi, PortfolioApi  # Direct imports
 from upstox_client.rest import ApiException
 import pandas as pd
 from datetime import datetime
