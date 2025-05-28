@@ -7,6 +7,7 @@ from app.config import logger, settings
 from app.models import StrategyInput, StrategyExecuteInput, BacktestInput
 from app.utils.data_processing import build_strategy_legs
 from app.utils.upstox_helpers import place_order_for_leg, fetch_trade_pnl
+from app.routers.market_data import ComprehensiveOptionChainFetcher
 
 router = APIRouter()
 
@@ -67,68 +68,55 @@ async def execute_strategy(data: StrategyExecuteInput):
     """
     try:
         quantity = int(float(data.quantity))
-
-        # The option_chain field should contain the raw 'data' from /option-chain endpoint
+        fetcher = ComprehensiveOptionChainFetcher(data.access_token)
         raw_option_chain_data = data.option_chain.get('data', [])
-        legs = build_strategy_legs(raw_option_chain_data, data.spot_price, data.strategy_name, quantity, data.otm_distance)
+        _, _, combined_df, _, _ = fetcher.parse_comprehensive_option_data(raw_option_chain_data)
+        if combined_df.empty:
+            raise HTTPException(status_code=400, detail="Empty option chain data.")
+        
+        legs = build_strategy_legs(combined_df, data.spot_price, data.strategy_name, quantity, data.otm_distance)
         if not legs:
-            raise HTTPException(status_code=400, detail=f"No valid legs could be built for {data.strategy_name}. Check OTM distance and option chain data.")
+            raise HTTPException(status_code=400, detail=f"No valid legs could be built for {data.strategy_name}.")
 
         estimated_entry_premium = 0
         for leg in legs:
             if leg['action'] == 'SELL':
                 estimated_entry_premium += (leg['ltp'] * leg['quantity'])
-            else: # BUY
-                estimated_entry_premium -= (leg['ltp'] * leg['quantity']) # Negative because it's a debit
+            else:
+                estimated_entry_premium -= (leg['ltp'] * leg['quantity'])
 
-        # NOTE: The max_loss calculation here is highly simplified and not accurate for complex strategies.
-        # A proper max loss calculation for strategies like Iron Fly/Condor needs careful consideration
-        # of strike prices and premiums.
-        # For a short iron fly/condor: max_loss = (Wing Strike - ATM Strike) * Quantity - Net Premium Received
-        # This requires detailed knowledge of the strategy structure. For now, a placeholder.
-        estimated_max_loss_placeholder = 0 # This needs to be calculated accurately per strategy type.
+        estimated_max_loss_placeholder = 0
         if data.strategy_name.lower() == "iron_fly":
-            # Assuming short ATM straddle and long OTM wings for protection
-            # Max loss is typically (long_strike - short_strike) * quantity - net_premium_received
-            # This is complex and would require parsing leg details to identify long/short and strikes
-            # For simplicity, let's just make a very rough estimate or rely on the risk check.
-            estimated_max_loss_placeholder = (data.otm_distance * 2 * quantity) * 0.5 # Placeholder, not real
+            estimated_max_loss_placeholder = (data.otm_distance * 2 * quantity) * 0.5
         elif data.strategy_name.lower() == "iron_condor":
-             estimated_max_loss_placeholder = (data.otm_distance * quantity) * 0.5 # Placeholder
+            estimated_max_loss_placeholder = (data.otm_distance * quantity) * 0.5
         elif "spread" in data.strategy_name.lower():
-            # For spreads, max loss is typically (strike_diff - net_premium) * quantity
-            estimated_max_loss_placeholder = (data.otm_distance * quantity) * 0.5 # Placeholder
+            estimated_max_loss_placeholder = (data.otm_distance * quantity) * 0.5
 
         order_results = []
         total_pnl_realized = 0
-
-        # Execute orders sequentially to avoid rate limits and for simpler tracking.
         for leg in legs:
             result = await place_order_for_leg(data.access_token, leg)
             if result and result.get('order_id'):
                 order_results.append(result)
                 order_id = result['order_id']
-                # In a real-time system, you'd track order status and execute exit strategies.
-                # For this demo, we'll simulate P&L by fetching trade P&L after a delay.
-                time.sleep(2) # Wait for order to potentially execute and trade to settle
-                pnl = fetch_trade_pnl(data.access_token, order_id) # This PnL might be 0 for open trades
-                total_pnl_realized += pnl # This accumulation is only meaningful if trades are closed
-
+                time.sleep(2)
+                pnl = await fetch_trade_pnl(data.access_token, order_id)
+                total_pnl_realized += pnl
             else:
                 logger.error(f"Order placement failed for leg: {leg}. Result: {result}")
-                # Consider what to do if a leg fails: stop execution, notify, or attempt retry?
 
         return {
             "order_results": order_results,
-            "trade_pnl_simulation": total_pnl_realized, # Emphasize this is simulated/partial
+            "trade_pnl_simulation": total_pnl_realized,
             "estimated_entry_premium": estimated_entry_premium,
             "estimated_max_loss": estimated_max_loss_placeholder,
-            "legs_attempted": legs
+            "legs_attempted": legs,
+            "option_chain_data": combined_df.to_dict(orient='records')
         }
     except Exception as e:
         logger.error(f"Strategy execution error: {e}")
         raise HTTPException(status_code=500, detail=f"Strategy execution error: {str(e)}")
-
 
 @router.post("/backtest", summary="Backtests a given option strategy over a historical period (Simulated)")
 def backtest_strategy(data: BacktestInput):
