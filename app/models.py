@@ -94,8 +94,3 @@ class OrderLeg(BaseModel):
 class TradePnlRequest(BaseModel):
     access_token: str
     order_id: str
-
-class WebSocketRequest(BaseModel):
-    access_token: str
-    instrument_keys: List[str]
-    mode: str = "full"
