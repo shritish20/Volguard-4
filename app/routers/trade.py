@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, WebSocket
+from fastapi import APIRouter, HTTPException
 from app.config import logger
 from app.models import OrderLeg, TradePnlRequest, UserDetailsInput, WebSocketRequest
 from app.utils.upstox_helpers import place_order_for_leg, fetch_trade_pnl, get_funds_and_margin, get_upstox_config
