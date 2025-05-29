@@ -1,7 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from app.config import settings, logger
 from app.database import create_db_and_tables
-from app.routers import market_data, strategy, volatility, user_management, analytics, trade
+
+# Import routers
+from app.routers import market_data, strategy, volatility, user_management, analytics
 
 app = FastAPI(
     title="VolGuard Pro Backend API",
@@ -9,23 +11,27 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Include routers
 app.include_router(market_data.router, prefix="/market-data", tags=["Market Data"])
 app.include_router(strategy.router, prefix="/strategy", tags=["Strategy & Backtesting"])
 app.include_router(volatility.router, prefix="/volatility", tags=["Volatility"])
 app.include_router(user_management.router, prefix="/user", tags=["User & Account"])
 app.include_router(analytics.router, prefix="/analytics", tags=["Trade Analytics & Risk"])
-app.include_router(trade.router, prefix="/trade", tags=["Trade Execution"])
+
 
 @app.on_event("startup")
 async def startup_event():
+    """Actions to perform on application startup."""
     logger.info("FastAPI app starting up...")
-    create_db_and_tables()
+    create_db_and_tables() # Ensure database tables are created
     logger.info("Database tables checked/created.")
 
 @app.get("/", tags=["Root"])
 def root():
+    """Root endpoint for health check."""
     return {"status": "healthy", "message": "VolGuard Backend is running."}
 
+# Global exception handler (optional but good practice)
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc: HTTPException):
     logger.error(f"HTTP Exception: {exc.status_code} - {exc.detail}")
