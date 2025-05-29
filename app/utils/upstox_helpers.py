@@ -52,6 +52,29 @@ def fetch_option_chain_raw(options_api_client: OptionsApi, instrument_key: str, 
         raise
 
 @retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+def get_market_depth(access_token: str, instrument_token: str):
+    """Fetches market depth for a given instrument token using direct requests."""
+    try:
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        url = f"{settings.UPSTOX_BASE_URL}/market-quote/depth"
+        params = {"instrument_key": instrument_token}
+        res = requests.get(url, headers=headers, params=params)
+        res.raise_for_status()
+        data = res.json().get('data', {}).get(instrument_token, {}).get('depth', {})
+        bid_volume = sum(item.get('quantity', 0) for item in data.get('buy', []))
+        ask_volume = sum(item.get('quantity', 0) for item in data.get('sell', []))
+        return {"bid_volume": bid_volume, "ask_volume": ask_volume}
+    except requests.exceptions.RequestException as e:
+        logger.error(f"HTTP Request error for depth fetch for {instrument_token}: {e}")
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error for depth fetch for {instrument_token}: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Depth fetch error for {instrument_token}: {e}")
+        raise
+
+@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def place_order_for_leg(access_token: str, leg: dict):
     """Places a single order leg via Upstox API."""
     try:
