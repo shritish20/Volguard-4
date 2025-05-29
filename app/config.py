@@ -7,7 +7,7 @@ load_dotenv()
 
 class Settings:
     UPSTOX_ACCESS_TOKEN: str = os.getenv("UPSTOX_ACCESS_TOKEN", "")
-    UPSTOX_BASE_URL: str = "https://api.upstox.com/v2"
+    UPSTOX_BASE_URL: str = "https://api.upstox.com"
     DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./trades.db")
     NIFTY_HISTORICAL_DATA_URL: str = "https://raw.githubusercontent.com/shritish20/VolGuard/main/nifty_50.csv"
     XGBOOST_MODEL_URL: str = "https://drive.google.com/uc?export=download&id=1Gs86p1p8wsGe1lp498KC-OVn0e87Gv-R"
