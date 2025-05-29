@@ -91,15 +91,3 @@ async def get_option_chain_endpoint(data: OptionChainInput):
     except Exception as e:
         logger.exception("An unexpected error occurred in /option-chain endpoint.")
         raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
-
-@router.post("/market-depth", summary="Fetches market depth for a given instrument token")
-async def get_market_depth_endpoint(data: MarketDepthInput):
-    """
-    Fetches market depth (total bid/ask quantity) for a specified instrument token.
-    """
-    try:
-        depth = get_market_depth(data.access_token, data.instrument_key)
-        return depth
-    except Exception as e:
-        logger.error(f"Market depth error: {e}")
-        raise HTTPException(status_code=500, detail=f"Market depth error: {str(e)}")
