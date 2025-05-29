@@ -127,7 +127,7 @@ def fetch_trade_pnl(access_token: str, order_id: str):
         logger.error(f"P&L fetch failed for order {order_id}: {e}")
         return 0
 
-@retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
+# @retrying.retry(stop_max_attempt_number=3, wait_fixed=2000)
 async def get_upstox_user_details(access_token: str):
     """Fetches comprehensive user details from Upstox APIs."""
     try:
