@@ -1,11 +1,15 @@
-fastapi==0.115.0
-uvicorn==0.30.6
-requests==2.32.3
+fastapi==0.111.0
+uvicorn==0.30.1
+nest-asyncio==1.6.0
+pydantic==2.7.1
 pandas==2.2.2
 numpy==1.26.4
-tenacity==8.5.0
+requests==2.31.0
+pickle5==0.0.11 # For Python 3.8+ pickle; if issues, use 'pickle' directly or a later Python version.
 python-dotenv==1.0.1
-arch==7.0.0
-sqlalchemy==2.0.31
-pydantic==2.9.2
+arch==6.3.0
+xgboost==2.0.3
 retrying==1.3.4
+SQLAlchemy==2.0.30
+upstox-python-sdk
+pyngrok==7.1.1
