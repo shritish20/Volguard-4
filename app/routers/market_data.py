@@ -7,13 +7,14 @@ from app.models import OptionChainInput
 from app.utils.upstox_helpers import fetch_expiry, fetch_option_chain_raw, get_upstox_config
 from app.utils.data_processing import process_chain_data, calculate_metrics_data
 from app.utils.volatility_calcs import compute_realized_vol
+import traceback
 
 router = APIRouter()
 
 class ComprehensiveOptionChainFetcher:
     def __init__(self, access_token):
         self.access_token = access_token
-        self.base_url = settings.UPSTOX_BASE_URL  # Assumed as https://api.upstox.com
+        self.base_url = settings.UPSTOX_BASE_URL
         self.headers = {
             'Authorization': f'Bearer {access_token}',
             'Content-Type': 'application/json',
@@ -21,18 +22,21 @@ class ComprehensiveOptionChainFetcher:
         }
 
     def get_option_chain(self, instrument_key, expiry_date):
-        url = f"{self.base_url}/v2/option/chain"
+        url = f"{self.base_url}/option/chain"  # Fixed: Removed /v2
         params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
         try:
+            logger.debug(f"Fetching option chain: URL={url}, Params={params}")
             response = requests.get(url, headers=self.headers, params=params)
+            logger.debug(f"Option chain response: Status={response.status_code}, Body={response.text}")
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching option chain: {e}")
+            logger.error(f"Error fetching option chain: {str(e)}, Status={e.response.status_code if e.response else 500}, Body={e.response.text if e.response else ''}")
             raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
 
     def parse_comprehensive_option_data(self, option_chain_data):
         if not option_chain_data or 'data' not in option_chain_data:
+            logger.error("Empty or invalid option chain data")
             return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), {}, 0
 
         calls_list = []
@@ -160,33 +164,34 @@ class ComprehensiveOptionChainFetcher:
 @router.post("/option-chain", summary="Fetches and processes live option chain data")
 async def get_option_chain_endpoint(data: OptionChainInput):
     try:
+        logger.debug(f"Fetching option chain for {data.instrument_key} with token {data.access_token[:4]}...")
         config = get_upstox_config(data.access_token)
         fetcher = ComprehensiveOptionChainFetcher(data.access_token)
         
         expiry = await fetch_expiry(config, data.instrument_key)
         if not expiry:
-            logger.error("Failed to retrieve nearest expiry date.")
-            raise HTTPException(status_code=500, detail="Failed to retrieve nearest expiry date.")
+            logger.error("Failed to retrieve nearest expiry date")
+            raise HTTPException(status_code=400, detail="No valid expiry dates found")
 
         chain = await fetch_option_chain_raw(config, data.instrument_key, expiry)
-        if not chain:
-            logger.error("Failed to retrieve option chain data.")
-            raise HTTPException(status_code=500, detail="Failed to retrieve option chain data.")
+        if not chain or not isinstance(chain, list):
+            logger.error("Invalid or empty option chain data")
+            raise HTTPException(status_code=404, detail="No option chain data found")
 
         spot = chain[0].get("underlying_spot_price") if chain else None
         if not spot:
-            logger.error("Failed to retrieve spot price from option chain.")
-            raise HTTPException(status_code=500, detail="Failed to retrieve spot price.")
+            logger.error("Failed to retrieve spot price from option chain")
+            raise HTTPException(status_code=400, detail="No spot price in option chain data")
 
         _, _, combined_df, atm_data, max_pain = fetcher.parse_comprehensive_option_data(chain)
         if combined_df.empty:
-            logger.error("Processed option chain DataFrame is empty.")
-            raise HTTPException(status_code=500, detail="Processed option chain DataFrame is empty.")
+            logger.error("Processed option chain DataFrame is empty")
+            raise HTTPException(status_code=404, detail="Processed option chain DataFrame is empty")
 
         df_processed, ce_oi, pe_oi = process_chain_data(combined_df)
         if df_processed.empty:
-            logger.error("Processed option chain DataFrame is empty.")
-            raise HTTPException(status_code=500, detail="Processed option chain DataFrame is empty.")
+            logger.error("Processed option chain DataFrame is empty")
+            raise HTTPException(status_code=404, detail="Processed option chain DataFrame is empty")
 
         pcr, _, straddle_price, atm_strike, atm_iv = calculate_metrics_data(df_processed, ce_oi, pe_oi, spot)
 
@@ -203,10 +208,11 @@ async def get_option_chain_endpoint(data: OptionChainInput):
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "data": chain
         }
-        logger.info("Successfully fetched and processed market data via /option-chain.")
+        logger.info("Successfully fetched and processed market data via /option-chain")
         return response_data
     except HTTPException as e:
-        raise e
+        logger.error(f"HTTPException: {str(e)}, Status: {e.status_code}, Traceback: {traceback.format_exc()}")
+        raise
     except Exception as e:
-        logger.exception("An unexpected error occurred in /option-chain endpoint.")
-        raise HTTPException(status_code=500, detail=f"Internal Server Error: {e}")
+        logger.error(f"Unexpected error in /option-chain: {str(e)}, Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Internal Server Error: {str(e)}")
