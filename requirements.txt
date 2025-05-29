@@ -12,4 +12,3 @@ xgboost==2.0.3
 retrying==1.3.4
 SQLAlchemy==2.0.30
 upstox-python-sdk
-pyngrok==7.1.1
