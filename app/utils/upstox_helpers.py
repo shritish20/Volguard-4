@@ -143,7 +143,7 @@ async def get_upstox_user_details(access_token: str):
         holdings_data = portfolio_api.get_holdings(api_version="v2").to_dict().get('data', [])
         positions_data = portfolio_api.get_positions(api_version="v2").to_dict().get('data', [])
         all_orders_data = order_api.get_order_book(api_version="v2").to_dict().get('data', [])
-        trades_for_day_data = order_api.get_trade_book(api_version="v2").to_dict().get('data', [])
+        trades_for_day_data = order_api.get_trade_history(api_version="v2").to_dict().get('data', [])
 
         return {
             "profile": profile_data,
