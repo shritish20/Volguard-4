@@ -1,4 +1,3 @@
-%%writefile volguard_pro/app/dependencies.py
 from app.database import SessionLocal
 from sqlalchemy.orm import Session
 
