@@ -153,9 +153,12 @@ async def get_upstox_user_details(access_token: str):
             "orders": all_orders_data,
             "trades": trades_for_day_data
         }
+
     except ApiException as e:
         logger.error(f"Upstox API Error fetching user details: Status {e.status}, Body: {e.body}")
-        raise
+        raise HTTPException(status_code=500, detail=f"User details endpoint error: {e.body}")
     except Exception as e:
+        import traceback
         logger.error(f"User details fetch failed: {e}")
-        raise
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"User details endpoint error: {str(e)}")
