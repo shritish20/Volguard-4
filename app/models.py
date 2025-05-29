@@ -2,10 +2,11 @@ from pydantic import BaseModel
 from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, DateTime
 from sqlalchemy.orm import declarative_base
-from typing import Optional, List, Dict
 
+# SQLAlchemy Base for database models
 Base = declarative_base()
 
+# --- Database Models ---
 class Trade(Base):
     __tablename__ = "trades"
     id = Column(Integer, primary_key=True)
@@ -15,6 +16,8 @@ class Trade(Base):
     pnl = Column(Float)
     regime_score = Column(Float)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+# --- Pydantic Models for API Requests/Responses ---
 
 class XGBInput(BaseModel):
     ATM_IV: float
@@ -63,13 +66,17 @@ class OptionChainInput(BaseModel):
     access_token: str
     instrument_key: str = "NSE_INDEX|Nifty 50"
 
+class MarketDepthInput(BaseModel):
+    access_token: str
+    instrument_key: str
+
 class StrategyExecuteInput(BaseModel):
     access_token: str
     strategy_name: str
     spot_price: float
     quantity: int
     otm_distance: float
-    option_chain: Dict
+    option_chain: dict # This should contain the 'data' and 'iv_skew_data' from the /option-chain response
 
 class UserDetailsInput(BaseModel):
     access_token: str
@@ -80,17 +87,4 @@ class VolatilityHistoricalInput(BaseModel):
 class BacktestInput(BaseModel):
     strategy_name: str
     quantity: int
-    period: int
-
-class OrderLeg(BaseModel):
-    instrument_key: str
-    quantity: int
-    action: str
-    price: Optional[float] = 0.0
-    trigger_price: Optional[float] = 0.0
-    disclosed_quantity: Optional[int] = 0
-    tag: Optional[str] = "volguard"
-
-class TradePnlRequest(BaseModel):
-    access_token: str
-    order_id: str
+    period: int # days
