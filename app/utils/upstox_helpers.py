@@ -137,3 +137,23 @@ async def get_upstox_user_details(access_token: str) -> dict:
     except Exception as e:
         logger.error(f"Unexpected error fetching user details: {str(e)}, Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(2))
+async def fetch_trade_pnl(config: dict, order_id: str) -> dict:
+    logger.debug(f"Fetching trade P&L for order_id: {order_id}")
+    try:
+        url = f"{config['base_url']}/order/trades/{order_id}"
+        logger.debug(f"Trade P&L Request: URL={url}, Headers={config['headers']}")
+        response = requests.get(url, headers=config['headers'])
+        logger.debug(f"Trade P&L Response: Status={response.status_code}, Body={response.text}")
+        response.raise_for_status()
+        data = response.json().get("data", {})
+        if not data:
+            logger.error(f"No trade P&L data returned for order_id: {order_id}")
+        return data
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to fetch trade P&L: {str(e)}, Status={e.response.status_code if e.response else 500}, Body={e.response.text if e.response else ''}, Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=e.response.status_code if e.response else 500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error fetching trade P&L: {str(e)}, Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
